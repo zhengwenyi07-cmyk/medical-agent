@@ -128,7 +128,7 @@ class tfidf_alignment():
 
 class Entity_Extend:
     def __init__(self):
-        eneities_path = os.path.join('data','ent')
+        eneities_path = os.path.join('data','ent_aug')
         files = os.listdir(eneities_path)
         files = [docu for docu in files if '.py' not in docu]
 
@@ -313,7 +313,7 @@ if __name__ == "__main__":
     lr =1e-5
     is_train=True
 
-    device = torch.device('cuda:2') if torch.cuda.is_available()   else torch.device('cpu')
+    device = torch.device('cuda:0') if torch.cuda.is_available()   else torch.device('cpu')
 
     train_dataset = Nerdataset(train_text,train_label,tokenizer,max_len,tag2idx,enhance_data=True)
     train_dataloader = DataLoader(train_dataset,batch_size=batch_size,shuffle=True)
