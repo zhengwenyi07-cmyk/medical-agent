@@ -646,3 +646,11 @@ qwen-max → qwen-plus-2025-07-28 → qwen-plus → qwen3-vl-235b-a22b-thinking
 **修复：** 用 `ThreadPoolExecutor` 替换串行循环，5 个独立的 Neo4j 查询并行执行。不依赖异步驱动（`neo4j` 驱动本身是同步的），GIL 在 I/O 等待时自动释放，线程池即可实现真并行。
 
 **效果：** 5 工具串行 1.54s → 并行 0.31s，加速比 **5.0×**。消息顺序保持原始 tool_calls 顺序不变。
+
+### 部署记录：Git 推送与 VPN 代理问题 ✅
+
+**问题：** `git push` 报 `Failed to connect to github.com port 443`，但浏览器能正常访问 GitHub。
+
+**根因：** VPN 是 TUN 模式（系统级虚拟网卡），浏览器走系统代理自动通过 VPN，但 Git 之前被配了错误代理 `http://127.0.0.1:59080`（该端口实际是 VNC 端口，不是 HTTP 代理端口），导致连接失败。
+
+**解决：** 清除 Git 代理配置（`git config --global --unset http.proxy`），TUN 模式 VPN 下 Git 直连即可，不需要额外配代理。代码已成功推送至 `github.com/zhengwenyi07-cmyk/medical-agent.git`（commit `39364b0`）。
