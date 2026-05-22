@@ -120,7 +120,7 @@ def login_form():
                 return
 
             user_cred = credentials.get(username)
-            if user_cred and user_cred.password == password:
+            if user_cred and user_cred.verify_password(password):
                 st.success("✅ 登录成功！正在跳转...")
                 st.session_state.logged_in = True
                 st.session_state.admin = user_cred.is_admin

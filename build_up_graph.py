@@ -1,63 +1,86 @@
 import os
-import re
-import py2neo
-from tqdm import tqdm
 import argparse
+from tqdm import tqdm
+from neo4j_client import Neo4jClient
+from config import get_neo4j_config
 
+# 导入普通实体 (批量化 UNWIND)
+def import_entity(client, entity_type, entities):
+    print(f'正在导入{entity_type}类数据 (批量加速)')
+    # 使用参数化与批量解包，防注入且极速
+    cypher = f"UNWIND $entities AS name CREATE (n:`{entity_type}` {{名称: name}})"
+    client.run_query(cypher, entities=entities)
 
-#导入普通实体
-def import_entity(client,type,entity):
-    def create_node(client,type,name):
-        order = """create (n:%s{名称:"%s"})"""%(type,name)
-        client.run(order)
+# 导入疾病类实体 (批量化 UNWIND)
+def import_disease_data(client, entity_type, entities):
+    print(f'正在导入{entity_type}类数据 (批量加速)')
+    cypher = f"""
+    UNWIND $entities AS disease 
+    CREATE (n:`{entity_type}` {{
+        名称: disease.名称, 
+        疾病简介: disease.疾病简介, 
+        疾病病因: disease.疾病病因, 
+        预防措施: disease.预防措施, 
+        治疗周期: disease.治疗周期, 
+        治愈概率: disease.治愈概率, 
+        疾病易感人群: disease.疾病易感人群
+    }})
+    """
+    client.run_query(cypher, entities=entities)
 
-    print(f'正在导入{type}类数据')
-    for en in tqdm(entity):
-        create_node(client,type,en)
-#导入疾病类实体
-def import_disease_data(client,type,entity):
-    print(f'正在导入{type}类数据')
-    for disease in tqdm(entity):
-        node = py2neo.Node(type,
-                           名称=disease["名称"],
-                           疾病简介=disease["疾病简介"],
-                           疾病病因=disease["疾病病因"],
-                           预防措施=disease["预防措施"],
-                           治疗周期=disease["治疗周期"],
-                           治愈概率=disease["治愈概率"],
-                           疾病易感人群=disease["疾病易感人群"],
+# 导入关系 (批量化 UNWIND)
+def create_all_relationship(client, all_relationship):
+    print("正在导入关系 (批量加速).....")
+    # 将关系元组转换为字典列表以便于 UNWIND
+    rels = [{"t1": r[0], "n1": r[1], "rel": r[2], "t2": r[3], "n2": r[4]} for r in all_relationship]
+    
+    # 注意：Neo4j 的标签和关系类型不能直接参数化，需要我们在图谱类别已知（白名单）的情况下安全拼接
+    # 由于这里是构建阶段，可以按关系类型分组批量导入
+    rel_groups = {}
+    for r in rels:
+        key = (r['t1'], r['rel'], r['t2'])
+        if key not in rel_groups:
+            rel_groups[key] = []
+        rel_groups[key].append({"n1": r['n1'], "n2": r['n2']})
 
-                           )
-        client.create(node)
-
-def create_all_relationship(client,all_relationship):
-    def create_relationship(client,type1, name1,relation, type2,name2):
-        order = """match (a:%s{名称:"%s"}),(b:%s{名称:"%s"}) create (a)-[r:%s]->(b)"""%(type1,name1,type2,name2,relation)
-        client.run(order)
-    print("正在导入关系.....")
-    for type1, name1,relation, type2,name2  in tqdm(all_relationship):
-        create_relationship(client,type1, name1,relation, type2,name2)
+    for (t1, rel_type, t2), pairs in tqdm(rel_groups.items()):
+        cypher = f"""
+        UNWIND $pairs AS pair
+        MATCH (a:`{t1}` {{名称: pair.n1}}), (b:`{t2}` {{名称: pair.n2}})
+        CREATE (a)-[r:`{rel_type}`]->(b)
+        """
+        client.run_query(cypher, pairs=pairs)
 
 if __name__ == "__main__":
-    #连接数据库的一些参数
     parser = argparse.ArgumentParser(description="通过medical.json文件,创建一个知识图谱")
-    parser.add_argument('--website', type=str, default='http://localhost:7474', help='neo4j的连接网站')
-    parser.add_argument('--user', type=str, default='neo4j', help='neo4j的用户名')
-    parser.add_argument('--password', type=str, default='wei8kang7.long', help='neo4j的密码')
-    parser.add_argument('--dbname', type=str, default='neo4j', help='数据库名称')
+    neo4j_cfg = get_neo4j_config()
+    parser.add_argument('--website', type=str, default=None, help='neo4j的bolt连接网站')
+    parser.add_argument('--user', type=str, default=None, help='neo4j的用户名')
+    parser.add_argument('--password', type=str, default=None, help='neo4j的密码')
     args = parser.parse_args()
 
-    #连接...
-    client = py2neo.Graph(args.website, user=args.user, password=args.password, name=args.dbname)
+    uri = args.website or neo4j_cfg["uri"]
+    user = args.user or neo4j_cfg["user"]
+    password = args.password or neo4j_cfg["password"]
 
-    #将数据库中的内容删光
+    if not password:
+        raise RuntimeError("Neo4j 密码未配置，请在 .streamlit/secrets.toml 或 --password 参数中提供")
+
+    # 连接新版 Client
+    client = Neo4jClient(uri, user, password)
+
     is_delete = input('注意:是否删除neo4j上的所有实体 (y/n):')
-    if is_delete=='y':
-        client.run("match (n) detach delete (n)")
+    if is_delete == 'y':
+        client.run_query("MATCH (n) DETACH DELETE (n)")
 
     with open('./data/medical_new_2.json','r',encoding='utf-8') as f:
         all_data = f.read().split('\n')
     
+    # 实体和关系解析逻辑保持不变 (省略中间提取逻辑，直接复用原代码的循环字典生成)
+    # ... [此处保留原代码对 all_data 遍历生成 all_entity 和 relationship 的逻辑] ...
+    
+    # 由于上下文限制，中间解析数据的逻辑与原代码 100% 相同。
+    # 假设 all_entity 和 relationship 已经构建完毕
     #所有实体
     all_entity = {
         "疾病": [],
@@ -164,18 +187,12 @@ if __name__ == "__main__":
             else:
                 for i,ent in enumerate(v):
                     f.write(ent['名称']+('\n' if i != len(v)-1 else ''))
-
-    #将属性和实体导入到neo4j上,注:只有疾病有属性，特判
+    
     for k in all_entity:
-        if k!="疾病":
-            import_entity(client,k,all_entity[k])
+        if k != "疾病":
+            import_entity(client, k, all_entity[k])
         else:
+            import_disease_data(client, k, all_entity[k])
             
-            import_disease_data(client,k,all_entity[k])
-    create_all_relationship(client,relationship)
-
-    
-
-    
-
-    
+    create_all_relationship(client, relationship)
+    client.close()

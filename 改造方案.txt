@@ -1,0 +1,138 @@
+医疗问答 Agent 改造蓝图 (v3.0)
+阶段一：核心工具链封装 (Tools Definition)
+改造目标： 将纯后端的数据库查询和算法逻辑，封装为 LangChain 原生的标准化 @tool，使其成为 Agent 可以自主调用的“手”。
+
+执行动作 1：鉴权与配置隔离
+
+在项目根目录创建 .streamlit/secrets.toml，将云端大模型 API Key 和 Neo4j 连接信息（URI, User, Password）统一写入。
+
+在入口文件中通过 st.secrets 读取，彻底移除代码中的硬编码明文。
+
+执行动作 2：注册知识图谱交互工具
+
+新建 tools.py。
+
+实例化我们前期封装好的防注入 Neo4jClient 单例。
+
+定义 4 个核心 @tool：check_entity_in_kg（实体存在性验证）、search_symptom_to_disease（症状反推疾病）、get_disease_attr（获取疾病基础属性）、get_disease_relations（获取疾病多跳关系如药品、检查）。
+
+必须为每个 Tool 编写详尽的 Google 风格 Docstring，明确告知大模型传入参数的严格规范（如 attr_type 的枚举范围），并在工具内部捕获异常，统一返回 {"success": bool, "data/error": str} 格式的 JSON 字符串。
+
+🎯 
+：工具链沙盒测试
+
+编写测试脚本，不加载任何 LLM。
+
+直接向上述 4 个函数传入 Mock 参数（如 get_disease_relations(disease_name='感冒', relation_type='药品')）。
+
+断言返回值是否为合法的 JSON 字符串，且能正确提取出对应的图谱数据，期间不能抛出任何数据库连接报错。
+
+阶段二：全局状态定义 (Agent State Management)
+改造目标： 构建 LangGraph 的核心数据结构 AgentState，承载在节点流转过程中的所有信息（包含我们前期预热好的 NER 记忆体）。
+
+执行动作 1：定义状态字典
+
+新建 agent_graph.py。
+
+利用 typing.TypedDict 定义 AgentState 类。
+
+必须包含以下字段：
+
+messages: 使用 Annotated[list, add_messages] 保存对话轮次。
+
+raw_entities: 接收 ONNX 模型抽取的实体字典。
+
+knowledge_cache: 保存已查询过的工具结果，作为短期记忆。
+
+next_action: 控制图结构的条件路由（如 continue, end, require_approval）。
+
+🎯 测试步骤 2：状态流转验证
+
+实例化一个初始化的 AgentState 字典对象。
+
+打印该字典，确认字段类型严格符合定义，重点确认 messages 列表的初始化状态为空。
+
+阶段三：图节点功能实现 (Nodes Implementation)
+改造目标： 将大模型推理、本地 ONNX 抽取、工具执行解耦为独立的节点函数（Node），每个节点仅负责接收 AgentState、处理数据并更新 AgentState。
+
+执行动作 1：构建前置处理节点 (node_preprocess)
+
+将前期重构好的 fetch_intent_and_entities 函数逻辑迁移至此。
+
+接收用户最新的 query，调用 ONNX 模型进行 NER。
+
+将抽取到的实体列表写入 AgentState["raw_entities"]，为后续大模型提供先验知识引导。
+
+执行动作 2：构建大脑节点 (node_llm_planner)
+
+初始化云端 LLM（如 qwen-plus）或本地 LLM（如 llama3），并使用 .bind_tools() 绑定第一阶段定义的工具链。
+
+构建强大的 System Prompt，明确指示大模型：“优先参考 raw_entities 提取的实体。当不确定医学事实时，必须调用对应的 tool 查询数据库，不可编造。”
+
+将大模型的输出结果追加到 AgentState["messages"] 中。
+
+执行动作 3：构建执行与记忆节点 (node_tool_executor)
+
+拦截大模型的 tool_calls 请求。
+
+执行对应的本地 Python 函数，捕获结果。
+
+将结果格式化为 ToolMessage 追加到 messages 中，并将查询到的重要事实同步写入 AgentState["knowledge_cache"]。
+
+🎯 测试步骤 3：单节点单元测试
+
+在测试脚本中，构造一个包含常见疾病提问的虚拟 AgentState。
+
+分别单独运行 node_preprocess 和 node_llm_planner。
+
+检查 node_preprocess 是否极速填充了 raw_entities，检查 node_llm_planner 的输出消息类型是否正确触发了 tool_calls。
+
+阶段四：组装与路由调度 (Graph Compilation & Routing)
+改造目标： 将所有节点用边连接起来，建立 LangGraph 的执行流水线，实现类似 ReAct（Reason + Act）的循环思考逻辑。
+
+执行动作 1：图实例化与连线
+
+初始化 StateGraph(AgentState)。
+
+将上述节点通过 graph.add_node() 注册。
+
+设定物理连线：START -> node_preprocess -> node_llm_planner。
+
+执行动作 2：构建条件路由 (conditional_edges)
+
+在 node_llm_planner 之后设置判断函数：
+
+如果大模型返回了 tool_calls，则路由至 node_tool_executor（执行完毕后再连回 node_llm_planner 形成循环）。
+
+如果大模型未返回工具调用且生成了最终回复，则路由至 END。
+
+执行动作 3：编译生成 Agent
+
+调用 app = graph.compile() 生成最终的 Agent 执行体。
+
+🎯 测试步骤 4：CLI 终端全链路模拟
+
+在终端中运行 app.invoke()，传入一个复杂的多意图问题。
+
+观察控制台日志。必须清晰地看到执行顺序：Preprocess 抽取实体 -> LLM 决定调用图谱 -> Tool 节点查 Neo4j -> LLM 结合结果生成最终文本 -> 图终止。
+
+阶段五：流式 UI 与并发集成 (Streamlit Integration)
+改造目标： 抛弃死板的阻塞等待，在 Streamlit 前端实现透明、动态的 Agent 思考过程展示。
+
+执行动作 1：接入异步流式生成
+
+在 webui3.py 的主流程中，弃用 ThreadPoolExecutor，改为调用 app.astream_events()。
+
+捕获 LangGraph 的执行事件（如 on_chat_model_stream, on_tool_start）。
+
+执行动作 2：动态 UI 渲染
+
+在 st.chat_message("assistant") 中，根据捕获到的事件动态更新 UI 提示（例如：显示“🔧 正在检索图谱关于 [阿莫西林] 的信息...”）。
+
+最终输出大模型的流式 Token 实现打字机效果。
+
+🎯 测试步骤 5：端到端压测
+
+启动 Streamlit，输入极端复杂的问题（包含模糊症状和特定药品询问）。
+
+校验前端界面是否能无卡顿地展示图谱调用步骤，并确保最终回答的内容严格受到图谱事实的约束，不再出现幻觉式的通用回答。
