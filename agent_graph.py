@@ -18,6 +18,14 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages  # reducer：自动追加消息而非覆盖
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
 
+# 模块级流水日志记录器（由 agent_stream.py 在每次请求前设置）
+_pipeline_logger = None
+
+def set_pipeline_logger(logger):
+    """设置当前请求的流水日志记录器（由 agent_stream.py 调用）"""
+    global _pipeline_logger
+    _pipeline_logger = logger
+
 
 # ==========================================
 # AgentState 状态字典
@@ -574,6 +582,9 @@ def node_preprocess(state: AgentState) -> AgentState:
             comp["idx2tag"],         # 标签索引映射
         )
         state["raw_entities"] = entities or {}
+        # 流水日志：记录 NER 抽取结果
+        if _pipeline_logger:
+            _pipeline_logger.log_entities(entities or {})
         print(f"[Preprocess] NER 抽取结果: {entities}")
     except Exception as e:
         print(f"[Preprocess] NER 失败: {e}")
@@ -672,6 +683,10 @@ def node_llm_planner(state: AgentState) -> AgentState:
 
     # 多模型降级链：依次尝试 qwen-max → qwen-plus → ... → ollama
     # 每级超时 30s，失败后自动尝试下一级
+    # 流水日志：记录组装后的完整消息 + System Prompt
+    if _pipeline_logger:
+        _pipeline_logger.log_system_prompt(system_content)
+        _pipeline_logger.log_messages(messages)
     llm_chain = _get_llm(with_tools=True)
     response = None
     last_error = ""
@@ -698,6 +713,9 @@ def node_llm_planner(state: AgentState) -> AgentState:
 
     # add_messages reducer 会自动把这个 AIMessage 追加到 messages 末尾
     # 无需手动拼接全量消息历史
+    # 流水日志：记录 LLM 原始输出
+    if _pipeline_logger:
+        _pipeline_logger.log_llm_output(response)
     state["messages"] = [response]
 
     # 根据 LLM 响应更新路由状态
@@ -777,6 +795,9 @@ def node_tool_executor(state: AgentState) -> AgentState:
         result = _execute_tool(name, args)  # 执行单个工具（含重试+校验+降级）
         elapsed = _time.time() - t0
         print(f"[Tool] {name} 完成 ({elapsed:.2f}s)")
+        # 流水日志
+        if _pipeline_logger:
+            _pipeline_logger.log_tool_call(name, args, result, elapsed)
         return (tid, name, args, result)
 
     if len(parsed_calls) == 1:
@@ -1059,6 +1080,10 @@ def node_reflection(state: AgentState) -> AgentState:
     #   1. 规则过滤 KG 外内容（药品/检查/治疗方法）
     #   2. 加风险横幅
     #   3. 追加审核报告
+    # 流水日志：记录 Reflection 校验结果
+    if _pipeline_logger:
+        verifier_note = verification_notes[-1] if verification_notes else ""
+        _pipeline_logger.log_reflection(guardrail_issues, verifier_note, tool_facts)
     modified_answer = _apply_reflection(original_answer, verification_notes, tool_facts)
 
     # 追加校验后的回答到消息链

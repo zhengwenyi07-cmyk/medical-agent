@@ -7,6 +7,8 @@ import asyncio
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage
 from agent_graph import app, create_initial_state
 from vector_memory import search_similar, add_case, format_similar_cases, save_index
+from pipeline_logger import PipelineLogger
+from agent_graph import set_pipeline_logger
 
 # 可分辨的节点名称列表
 _NODE_NAMES = {"preprocess", "llm_planner", "tool_executor"}
@@ -152,6 +154,10 @@ def stream_agent(query: str, memory: dict = None, history_messages: list = None)
                 initial_msgs.extend(_compress_history(history_messages))
 
             # 3. 当前问题放最后
+            # 流水日志：创建本轮日志记录器 + 记录用户输入
+            pipeline_log = PipelineLogger(username="default", window_index=0)
+            set_pipeline_logger(pipeline_log)
+            pipeline_log.new_round(query)
             initial_msgs.append(HumanMessage(content=query))
             state["messages"] = initial_msgs
 
@@ -200,6 +206,17 @@ def stream_agent(query: str, memory: dict = None, history_messages: list = None)
                 except Exception as e:
                     print(f"[Vector] 保存病例失败: {e}")
 
+                # 流水日志：记录最终回答并保存
+                try:
+                    for msg in reversed(full_state.get("messages", [])):
+                        if hasattr(msg, "content") and msg.content:
+                            if not hasattr(msg, "tool_calls") or not msg.tool_calls:
+                                pipeline_log.log_final_answer(msg.content)
+                                break
+                    pipeline_log.save()
+                    pipeline_log.clear()
+                except Exception:
+                    pass
                 q.put({"type": "done", "final_state": _serializable_state(full_state)})
             except Exception as e:
                 q.put({"type": "error", "message": str(e)})
