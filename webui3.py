@@ -29,21 +29,150 @@ NEO4J_USER = _get_secret("neo4j", "user", "neo4j")
 NEO4J_PASSWORD = _get_secret("neo4j", "password", "")
 
 # ==========================================
-# UI/UX 美化
+# UI/UX 美化 — 临床医疗系统风格
 # ==========================================
 def load_css():
     st.markdown("""
         <style>
-        .stApp { background-color: #F4F8FB; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
-        .main-header { color: #008B8B; font-weight: 700; border-bottom: 2px solid #008B8B; padding-bottom: 15px; margin-bottom: 20px; text-align: center; }
-        section[data-testid="stSidebar"] { background-color: #FFFFFF; box-shadow: 2px 0 5px rgba(0,0,0,0.05); border-right: 1px solid #E0E0E0; }
-        .user-card { background-color: #E0F2F1; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-left: 5px solid #008B8B; }
-        .stChatMessage { background-color: #FFFFFF; border-radius: 15px; padding: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 10px; border: 1px solid #EFEFEF; }
-        .medical-card { background-color: #FAFAFA; border-left: 4px solid #008B8B; padding: 12px; border-radius: 4px; margin: 10px 0; font-size: 0.9em; color: #444; }
-        .disclaimer { font-size: 0.75em; color: #95A5A6; text-align: center; margin-top: 15px; padding-top: 10px; border-top: 1px dashed #E0E0E0; }
-        .stButton button { background-color: #008B8B; color: white; border-radius: 8px; border: none; transition: 0.2s; font-weight: 500; }
-        .stButton button:hover { background-color: #006666; color: white; border: none; }
-        .intent-badge { background-color: #34495E; color: white; padding: 2px 8px; border-radius: 4px; margin: 2px; font-size: 0.8em; display: inline-block; }
+        /* ===== 全局基础 ===== */
+        .stApp {
+            background: linear-gradient(180deg, #F5F9FC 0%, #EEF4F8 100%);
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        /* ===== 主标题 ===== */
+        .main-header {
+            color: #0D7377;
+            font-weight: 700;
+            font-size: 1.4em;
+            letter-spacing: 0.02em;
+            border-bottom: 3px solid #0D7377;
+            padding-bottom: 12px;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        /* ===== 侧边栏 ===== */
+        section[data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #FFFFFF 0%, #F8FBFC 100%);
+            box-shadow: 2px 0 12px rgba(0,0,0,0.04);
+            border-right: 1px solid #E3ECF2;
+        }
+        section[data-testid="stSidebar"] .stMarkdown h1,
+        section[data-testid="stSidebar"] .stMarkdown h2,
+        section[data-testid="stSidebar"] .stMarkdown h3 {
+            color: #0D7377;
+        }
+
+        /* ===== 用户卡片 ===== */
+        .user-card {
+            background: linear-gradient(135deg, #E0F7F6 0%, #D4F0EF 100%);
+            padding: 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border-left: 4px solid #0D7377;
+            color: #1A4A4D;
+        }
+
+        /* ===== 聊天消息气泡 ===== */
+        .stChatMessage {
+            background-color: #FFFFFF;
+            border-radius: 12px;
+            padding: 16px 20px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+            margin-bottom: 12px;
+            border: 1px solid #E8EEF2;
+            transition: box-shadow 0.2s;
+        }
+        .stChatMessage:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        /* ===== 知识卡 ===== */
+        .medical-card {
+            background: #F8FAFB;
+            border-left: 4px solid #0D7377;
+            padding: 14px 16px;
+            border-radius: 0 6px 6px 0;
+            margin: 12px 0;
+            font-size: 0.9em;
+            color: #3A4F5C;
+            line-height: 1.6;
+        }
+
+        /* ===== 免责声明 ===== */
+        .disclaimer {
+            font-size: 0.78em;
+            color: #8899A6;
+            text-align: center;
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid #E8EEF2;
+            letter-spacing: 0.02em;
+        }
+
+        /* ===== 按钮 ===== */
+        .stButton button {
+            background-color: #0D7377;
+            color: white;
+            border-radius: 8px;
+            border: none;
+            transition: all 0.2s;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+        }
+        .stButton button:hover {
+            background-color: #095C60;
+            color: white;
+            border: none;
+            box-shadow: 0 2px 6px rgba(13,115,119,0.25);
+        }
+
+        /* ===== 意图标签 ===== */
+        .intent-badge {
+            background-color: #2C4251;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 4px;
+            margin: 2px 4px 2px 0;
+            font-size: 0.8em;
+            display: inline-block;
+            letter-spacing: 0.02em;
+        }
+
+        /* ===== 全链路日志区域 — 全宽显示 ===== */
+        .pipeline-log-section {
+            background: #FAFBFC;
+            border: 1px solid #E3ECF2;
+            border-radius: 8px;
+            padding: 0;
+            margin: 24px 0 12px 0;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .pipeline-log-section .stMarkdown {
+            padding: 12px 20px;
+        }
+        .pipeline-log-section h2 { color: #0D7377; font-size: 1.1em; border-bottom: 1px solid #E3ECF2; padding-bottom: 8px; }
+        .pipeline-log-section h3 { color: #2C4251; font-size: 0.95em; }
+        .pipeline-log-section h4 { color: #4A6A7D; font-size: 0.88em; }
+        .pipeline-log-section code { font-size: 0.82em; background: #F0F4F7; padding: 1px 4px; border-radius: 3px; }
+        .pipeline-log-section pre { background: #F5F7F9; border: 1px solid #E3ECF2; border-radius: 6px; }
+
+        /* ===== 输入框 ===== */
+        .stChatInput textarea {
+            border-radius: 10px;
+            border: 1.5px solid #DDE5EC;
+        }
+        .stChatInput textarea:focus {
+            border-color: #0D7377;
+            box-shadow: 0 0 0 2px rgba(13,115,119,0.12);
+        }
+
+        /* ===== 健康检查提示 ===== */
+        .stAlert {
+            border-radius: 8px;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -435,17 +564,6 @@ def main(is_admin, usname):
             show_int = st.checkbox("显示意图分析", value=True)
             show_prompt = st.checkbox("显示图谱知识", value=False)
             show_pipeline = st.checkbox("🔍 查看全链路流水日志", value=False)
-            if show_pipeline:
-                import os as _os
-                safe_name = st.session_state.usname.replace("/", "_").replace("\\", "_")
-                log_path = _os.path.join("tmp_data", "pipeline_logs", f"{safe_name}_window{active_window_index}.md")
-                if _os.path.exists(log_path):
-                    with open(log_path, "r", encoding="utf-8") as _f:
-                        log_content = _f.read()
-                    with st.expander("📊 全链路流水日志", expanded=True):
-                        st.markdown(log_content)
-                else:
-                    st.caption("暂无日志（请先发送一条消息）")
             gpu_status = "✅ CUDA GPU 就绪" if torch.cuda.is_available() else "⚠️ 仅 CPU 运行"
             st.caption(f"💻 当前 PyTorch 硬件: {gpu_status}")
             if is_admin:
@@ -627,6 +745,20 @@ def main(is_admin, usname):
 
     # 自动持久化到磁盘
     save_conversation(usname, active_window_index, current_messages)
+
+    # ===== 全链路流水日志 — 主内容区全宽展示（不在侧边栏） =====
+    if show_pipeline:
+        import os as _os
+        safe_name = usname.replace("/", "_").replace("\\", "_")
+        log_path = _os.path.join("tmp_data", "pipeline_logs", f"{safe_name}_window{active_window_index}.md")
+        if _os.path.exists(log_path):
+            with open(log_path, "r", encoding="utf-8") as _f:
+                log_content = _f.read()
+            st.divider()
+            with st.expander("📊 全链路流水日志（当前窗口）", expanded=False):
+                st.markdown(log_content)
+        else:
+            st.caption("📊 暂无流水日志（请先发送一条消息）")
     save_agent_memory(usname, st.session_state.agent_memory)
 if __name__ == "__main__":
     if 'logged_in' not in st.session_state:
