@@ -653,4 +653,28 @@ qwen-max → qwen-plus-2025-07-28 → qwen-plus → qwen3-vl-235b-a22b-thinking
 
 **根因：** VPN 是 TUN 模式（系统级虚拟网卡），浏览器走系统代理自动通过 VPN，但 Git 之前被配了错误代理 `http://127.0.0.1:59080`（该端口实际是 VNC 端口，不是 HTTP 代理端口），导致连接失败。
 
-**解决：** 清除 Git 代理配置（`git config --global --unset http.proxy`），TUN 模式 VPN 下 Git 直连即可，不需要额外配代理。代码已成功推送至 `github.com/zhengwenyi07-cmyk/medical-agent.git`（commit `39364b0`）。
+**诊断过程：**
+1. DNS 解析正常（`nslookup github.com` → 20.205.243.166）
+2. ICMP Ping 正常（219ms，0% 丢包）
+3. HTTPS (443 端口) 被 VPN 阻断（`curl https://github.com` → timeout）
+4. 浏览器能访问是因为走了不同的网络路径
+
+**最终方案：SSH 协议替代 HTTPS。**
+
+**SSH 配置步骤（记录以备后续使用）：**
+```bash
+# 1. 查看本地 SSH 公钥
+cat ~/.ssh/id_ed25519.pub
+# 输出: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE8ECjJQnF58lpSsYEHVmD5An/9cxxrOKBlUjpTEcRdR autodl
+
+# 2. 将公钥添加到 GitHub → Settings → SSH and GPG keys → New SSH Key
+
+# 3. 切换到 SSH 远程地址
+git remote set-url origin git@github.com:zhengwenyi07-cmyk/medical-agent.git
+
+# 4. 验证连接
+ssh -T git@github.com
+
+# 5. 推送
+git push origin main
+```
