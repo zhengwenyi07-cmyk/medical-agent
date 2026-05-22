@@ -647,6 +647,25 @@ qwen-max → qwen-plus-2025-07-28 → qwen-plus → qwen3-vl-235b-a22b-thinking
 
 **效果：** 5 工具串行 1.54s → 并行 0.31s，加速比 **5.0×**。消息顺序保持原始 tool_calls 顺序不变。
 
+### 全链路流水日志系统 ✅
+
+**新建文件：** `pipeline_logger.py`（~170 行）
+**改动文件：** `agent_graph.py`、`agent_stream.py`、`webui3.py`
+
+**功能：** 每次问诊自动生成完整流水日志（Markdown 格式），记录从用户输入到最终回答的全链路输入输出：
+1. 用户原始 Query
+2. NER 实体抽取完整结果（JSON）
+3. 注入实体后的完整 System Prompt
+4. 传给 LLM 的完整消息链（每条消息的 type + content + tool_calls）
+5. LLM 每次推理的原始输出（含 tool_calls 或 content）
+6. 每个工具调用的完整参数 + 返回 JSON + 耗时
+7. Reflection 护栏检查结果 + KG 已知事实 + 校验 Agent 审核结果
+8. 最终回答
+
+**前端展示：** 侧边栏新增 `🔍 查看全链路流水日志` 复选框，勾选后以折叠面板展示当前窗口的完整日志。
+
+**存储：** `tmp_data/pipeline_logs/{用户名}_window{N}.md`，按用户+窗口分文件，人类可读。
+
 ### 部署记录：Git 推送与 VPN 代理问题 ✅
 
 **问题：** `git push` 报 `Failed to connect to github.com port 443`，但浏览器能正常访问 GitHub。

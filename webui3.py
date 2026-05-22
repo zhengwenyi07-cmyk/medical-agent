@@ -434,6 +434,18 @@ def main(is_admin, usname):
             show_ent = st.checkbox("显示实体识别 (NER)", value=True)
             show_int = st.checkbox("显示意图分析", value=True)
             show_prompt = st.checkbox("显示图谱知识", value=False)
+            show_pipeline = st.checkbox("🔍 查看全链路流水日志", value=False)
+            if show_pipeline:
+                import os as _os
+                safe_name = st.session_state.usname.replace("/", "_").replace("\\", "_")
+                log_path = _os.path.join("tmp_data", "pipeline_logs", f"{safe_name}_window{active_window_index}.md")
+                if _os.path.exists(log_path):
+                    with open(log_path, "r", encoding="utf-8") as _f:
+                        log_content = _f.read()
+                    with st.expander("📊 全链路流水日志", expanded=True):
+                        st.markdown(log_content)
+                else:
+                    st.caption("暂无日志（请先发送一条消息）")
             gpu_status = "✅ CUDA GPU 就绪" if torch.cuda.is_available() else "⚠️ 仅 CPU 运行"
             st.caption(f"💻 当前 PyTorch 硬件: {gpu_status}")
             if is_admin:
@@ -509,7 +521,8 @@ def main(is_admin, usname):
             for m in current_messages:
                 history.append({"role": m["role"], "content": m["content"]})
 
-            for event in stream_agent(query, memory=st.session_state.agent_memory, history_messages=history):
+            for event in stream_agent(query, memory=st.session_state.agent_memory, history_messages=history,
+                                     log_user=st.session_state.usname, log_window=active_window_index):
                 t = event.get("type")
                 if t == "node_completed":
                     node = event.get("node", "")

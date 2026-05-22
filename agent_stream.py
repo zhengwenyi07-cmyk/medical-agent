@@ -103,7 +103,7 @@ def _compress_history(history_messages: list) -> list:
 
 
 
-def stream_agent(query: str, memory: dict = None, history_messages: list = None):
+def stream_agent(query: str, memory: dict = None, history_messages: list = None, log_user: str = "default", log_window: int = 0):
     """同步生成器，逐步产出 Agent 执行过程中的结构化事件。
 
     Args:
@@ -155,7 +155,7 @@ def stream_agent(query: str, memory: dict = None, history_messages: list = None)
 
             # 3. 当前问题放最后
             # 流水日志：创建本轮日志记录器 + 记录用户输入
-            pipeline_log = PipelineLogger(username="default", window_index=0)
+            pipeline_log = PipelineLogger(username=log_user, window_index=log_window)
             set_pipeline_logger(pipeline_log)
             pipeline_log.new_round(query)
             initial_msgs.append(HumanMessage(content=query))
