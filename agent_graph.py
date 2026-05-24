@@ -21,6 +21,58 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AI
 # 模块级流水日志记录器（由 agent_stream.py 在每次请求前设置）
 _pipeline_logger = None
 
+
+# ==========================================
+# Skill 动态加载器 — 将自定义 Skill 包装为 LangChain @tool
+# ==========================================
+
+def load_drug_safety_skill():
+    """加载 drug_safety Skill，包装为 LangChain @tool。
+
+    从 skills/drug_safety/ 目录读取 skill.py 中的 run 函数，
+    结合 meta.json 的参数 Schema 和 SKILL.md 的描述，
+    包装为一个标准的 LangChain @tool 供 Agent 调用。
+
+    Returns:
+        StructuredTool 实例，或 None（加载失败时）。
+    """
+    import importlib.util
+    import os as _os
+
+    skill_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "skills", "drug_safety")
+    skill_py = _os.path.join(skill_dir, "skill.py")
+    if not _os.path.exists(skill_py):
+        print("[Skill] drug_safety 技能文件不存在，跳过加载")
+        return None
+
+    # 动态加载 skill.py 模块
+    spec = importlib.util.spec_from_file_location("drug_safety_skill", skill_py)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    # 读取 meta.json 获取工具描述
+    try:
+        with open(_os.path.join(skill_dir, "meta.json"), "r", encoding="utf-8") as f:
+            meta = json.load(f)
+    except Exception:
+        meta = {}
+
+    # 用 LangChain @tool 包装 skill.run
+    from langchain_core.tools import tool as langchain_tool
+
+    @langchain_tool
+    def drug_safety(drug_name: str) -> str:
+        """查询美国 FDA 公开数据库中药品的禁忌症、副作用、药物相互作用和警告信息。
+
+        适用场景：用户询问药品安全性、副作用、禁忌症、能否与其他药同服。
+        参数 drug_name 应为药品的英文通用名（如 ibuprofen、aspirin、acetaminophen）。
+        返回信息来自 OpenFDA 数据库，仅供参考，不构成医疗建议。
+        """
+        return module.run(drug_name)
+
+    print(f"[Skill] drug_safety 技能加载成功 (v{meta.get('version', '1.0.0')})")
+    return drug_safety
+
 def set_pipeline_logger(logger):
     """设置当前请求的流水日志记录器（由 agent_stream.py 调用）"""
     global _pipeline_logger
@@ -276,7 +328,11 @@ def _get_llm(with_tools=False):
             get_disease_relations,
         )
         tools = [check_entity_in_kg, search_symptom_to_disease, get_disease_attr, get_disease_relations]
-        # 对降级链中的每个 LLM 实例，绑定相同的 4 个工具
+        # 加载 drug_safety Skill（OpenFDA）
+        drug_skill = load_drug_safety_skill()
+        if drug_skill:
+            tools.append(drug_skill)
+        # 对降级链中的每个 LLM 实例，绑定相同的工具
         # bind_tools 会把工具描述（名称+参数+Docstring）注入 LLM 的请求中
         _llm_tool_bound = [(instance.bind_tools(tools), name, desc) for instance, name, desc in llm_chain]
         _llm = [(instance, name, desc) for instance, name, desc in llm_chain]
@@ -317,6 +373,10 @@ def _get_tool_map():
         "get_disease_attr": get_disease_attr,
         "get_disease_relations": get_disease_relations,
     }
+    # 加载 drug_safety Skill（如果可用）
+    drug_skill = load_drug_safety_skill()
+    if drug_skill:
+        _TOOL_MAP["drug_safety"] = drug_skill
     return _TOOL_MAP
 
 
