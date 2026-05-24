@@ -614,8 +614,16 @@ def main(is_admin, usname):
             st.session_state.admin = False
             st.rerun()
 
-    # 预热 Agent 的 NER 组件
+    # 预热 Agent 的全部组件
     warmup_agent()
+
+    # 检查是否有未完成的对话（上次崩溃/中断）
+    from checkpoint import has_any_unfinished, get_unfinished_checkpoint
+    if has_any_unfinished(usname):
+        checkpoint = get_unfinished_checkpoint(usname, active_window_index)
+        if checkpoint:
+            last_node = checkpoint.get("node", "未知")
+            st.warning(f"检测到上次对话在「{last_node}」节点中断。如需继续，请重新发送您的问题，Agent 将从检查点恢复。")
 
     current_messages = st.session_state.messages[active_window_index]
 

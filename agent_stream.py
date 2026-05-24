@@ -22,6 +22,7 @@ from agent_graph import app, create_initial_state  # app: 预编译的 LangGraph
 from vector_memory import search_similar, add_case, format_similar_cases, save_index
 from pipeline_logger import PipelineLogger  # 全链路流水日志记录器
 from agent_graph import set_pipeline_logger  # 将日志记录器注入 agent_graph 的模块级变量
+from checkpoint import save_checkpoint, mark_completed  # 检查点机制
 
 # 可分辨的节点名称列表（用于 _infer_node 判断）
 _NODE_NAMES = {"preprocess", "llm_planner", "tool_executor"}
@@ -249,6 +250,12 @@ def stream_agent(query: str, memory: dict = None, history_messages: list = None,
                             "node": current_node,
                             "data": _extract_node_data(current_node, messages, entities, cache),
                         })
+                        # 检查点：保存节点完成后的状态快照
+                        try:
+                            save_checkpoint(log_user, log_window, current_node,
+                                          _serializable_state(full_state))
+                        except Exception:
+                            pass
                     else:
                         # 同一节点二次经过（如 llm_planner 在 ReAct 循环中被多次调用）
                         # 仍然推送事件（前端需要更新状态），但不加入 prev_node_set
@@ -257,6 +264,12 @@ def stream_agent(query: str, memory: dict = None, history_messages: list = None,
                             "node": current_node or "llm_planner",
                             "data": _extract_node_data(current_node or "llm_planner", messages, entities, cache),
                         })
+                        # 检查点：保存节点完成后的状态快照
+                        try:
+                            save_checkpoint(log_user, log_window, current_node or "llm_planner",
+                                          _serializable_state(full_state))
+                        except Exception:
+                            pass
 
                 # ===== 第 6 步：Agent 执行完毕后的收尾工作 =====
 
@@ -285,6 +298,11 @@ def stream_agent(query: str, memory: dict = None, history_messages: list = None,
                                 break
                     pipeline_log.save()
                     pipeline_log.clear()
+                except Exception:
+                    pass
+                # 标记对话正常完成，清除检查点
+                try:
+                    mark_completed(log_user, log_window)
                 except Exception:
                     pass
                 # 推送 done 事件：告诉前端"Agent 执行完毕"

@@ -859,7 +859,15 @@ def node_tool_executor(state: AgentState) -> AgentState:
     t_start = _time.time()
 
     # 工具调用的包装函数（用于提交给线程池）
-    def _call_one(name, args, tid):
+    def _call_one(name, args, tid, local_cache=None):
+        # 幂等检查：如果相同工具+参数已经缓存，直接返回
+        cache_key = f"{name}:{json.dumps(args, ensure_ascii=False, sort_keys=True)}"
+        if local_cache and cache_key in local_cache:
+            cached = local_cache[cache_key]
+            if isinstance(cached, dict) and cached.get("success"):
+                print(f"[Tool] {name} 命中缓存，跳过执行")
+                return (tid, name, args, json.dumps(cached, ensure_ascii=False))
+
         t0 = _time.time()
         result = _execute_tool(name, args)  # 执行单个工具（含重试+校验+降级）
         elapsed = _time.time() - t0
@@ -871,14 +879,14 @@ def node_tool_executor(state: AgentState) -> AgentState:
 
     if len(parsed_calls) == 1:
         # 单工具无需并行，避免线程创建开销
-        tid, name, args, result = _call_one(*parsed_calls[0])
+        tid, name, args, result = _call_one(*parsed_calls[0], local_cache=state.get("knowledge_cache", {}))
         results[tid] = (name, args, result)
     else:
         # 多工具并行执行: 最多 8 个线程（实际一般 ≤5 个 tool_calls）
         max_workers = min(len(parsed_calls), 8)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 提交所有任务到线程池
-            futures = {executor.submit(_call_one, name, args, tid): tid for name, args, tid in parsed_calls}
+            futures = {executor.submit(_call_one, name, args, tid, state.get("knowledge_cache", {})): tid for name, args, tid in parsed_calls}
             # as_completed: 哪个先完成就先处理哪个（不按提交顺序）
             for future in as_completed(futures):
                 tid, name, args, result = future.result()
