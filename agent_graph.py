@@ -157,14 +157,14 @@ def _load_ner_components():
 _llm = None              # 缓存不带工具的 LLM 列表
 _llm_tool_bound = None   # 缓存绑定工具的 LLM 列表
 # 降级链模型列表：(model_name, description)
-# 主模型使用 DeepSeek，降级链回退到 Qwen + Ollama
+# 全部使用阿里云百炼同一 API Key，按推理能力强→弱排序
 # node_llm_planner 会依次尝试，任一成功即停止
 _FALLBACK_CHAIN = [
-    ("deepseek-v4-pro",              "DeepSeek V4 Pro（主模型，最强推理）"),
-    ("deepseek-v4-flash",            "DeepSeek V4 Flash（降级1，快速推理）"),
-    ("qwen-plus",                    "通义千问 Plus（降级2，备用）"),
-    ("qwen3-vl-235b-a22b-thinking",  "Qwen3-VL 235B Thinking（降级3）"),
-    ("qwen3-vl-32b-thinking",        "Qwen3-VL 32B Thinking（降级4）"),
+    ("qwen-max",                     "通义千问 Max（主模型）"),
+    ("qwen-math-turbo",              "通义千问 Math Turbo（降级1）"),
+    ("qwen3-vl-235b-a22b-thinking",  "Qwen3-VL 235B Thinking（降级2）"),
+    ("qwen3-vl-32b-thinking",        "Qwen3-VL 32B Thinking（降级3）"),
+    ("qwen3-vl-30b-a3b-thinking",    "Qwen3-VL 30B Thinking（降级4）"),
 ]
 
 
@@ -197,6 +197,7 @@ def _build_llm_instance(model_name: str, cfg: dict) -> object | None:
             base_url=deepseek_cfg.get("base_url", "https://api.deepseek.com/v1"),
             temperature=0.1,
             timeout=30,
+            # DeepSeek 兼容：不传 thinking 参数（由消息层处理 reasoning_content）
         )
     # 阿里云百炼模型：qwen- 或 qwen3- 开头，共用同一 API Key
     if model_name.startswith("qwen-") or model_name.startswith("qwen3-"):
@@ -704,8 +705,6 @@ def node_llm_planner(state: AgentState) -> AgentState:
     for llm, model_name, model_desc in llm_chain:
         try:
             print(f"[LLM] 尝试 {model_desc} ({model_name})...")
-            # llm.invoke() 内部会: 1) 把 messages 发给 API  2) 等待返回
-            #                             3) LangChain 自动解析 JSON 为 tool_calls
             response = llm.invoke(messages)
             print(f"[LLM] {model_name} 调用成功: tool_calls={getattr(response, 'tool_calls', [])}")
             break  # 成功 → 跳出循环，不再尝试后面的模型
@@ -1126,20 +1125,20 @@ def _get_or_create_verifier_llm():
     from langchain_openai import ChatOpenAI
 
     cfg = get_config()
-    deepseek_cfg = cfg.get("deepseek", {})
+    qwen_cfg = cfg.get("qwen", {})
     ollama_cfg = cfg.get("ollama", {})
 
-    # 优先用 DeepSeek V4 Flash 做校验（比 Pro 便宜，且独立于诊断 Agent 的模型）
+    # 用 qwen-mt-flash 做校验（比 qwen-max 便宜，且独立于诊断 Agent 的模型）
     # temperature=0.0 让审核更严格、更一致性（不需要创造性）
-    if deepseek_cfg.get("api_key"):
+    if qwen_cfg.get("api_key"):
         _verifier_llm = ChatOpenAI(
-            model="deepseek-v4-flash",
-            api_key=deepseek_cfg["api_key"],
-            base_url=deepseek_cfg.get("base_url", "https://api.deepseek.com/v1"),
+            model="qwen-mt-flash",
+            api_key=qwen_cfg["api_key"],
+            base_url=qwen_cfg.get("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
             temperature=0.0,
             timeout=30,
         )
-        print("[Reflection] 校验 Agent 初始化: deepseek-v4-flash")
+        print("[Reflection] 校验 Agent 初始化: qwen-mt-flash")
     elif ollama_cfg.get("base_url"):
         # Ollama 降级
         _verifier_llm = ChatOpenAI(
