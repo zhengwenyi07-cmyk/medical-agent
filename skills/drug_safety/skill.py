@@ -197,18 +197,39 @@ def run(drug_name: str) -> str:
                 "error": f"FDA API 返回错误 (HTTP {resp.status_code})，请稍后重试。",
             }, ensure_ascii=False)
 
-    except requests.Timeout:
-        # 超时 → 静态字典降级
+    except (requests.Timeout, requests.ConnectionError, requests.exceptions.SSLError,
+            requests.exceptions.ProxyError, OSError) as e:
+        # 网络问题（超时/SSL/代理/连接拒绝）→ 静态字典降级
+        error_type = type(e).__name__
         if drug_name in _STATIC_FALLBACK:
             fb = _STATIC_FALLBACK[drug_name]
             return json.dumps({
-                "success": True, "drug": drug_name, "_source": "static_fallback",
+                "success": True,
+                "drug": drug_name,
+                "drug_cn": original_name if original_name != drug_name else _EN_TO_CN_DRUG.get(drug_name, ""),
+                "_source": "static_fallback",
+                "_network_error": error_type,
                 "contraindications": fb.get("contraindications", "暂无"),
                 "adverse_reactions": fb.get("adverse_reactions", "暂无"),
                 "drug_interactions": fb.get("drug_interactions", "暂无"),
                 "warnings": fb.get("warnings", "暂无"),
             }, ensure_ascii=False)
-        return json.dumps({"success": False, "error": "FDA API 请求超时，请稍后重试。"}, ensure_ascii=False)
+        return json.dumps({
+            "success": False,
+            "error": f"FDA API 不可用（{error_type}），且该药品无离线缓存。请稍后重试或尝试查询其他常见药品。",
+        }, ensure_ascii=False)
 
     except Exception as e:
+        # 其他异常也尝试降级
+        error_type = type(e).__name__
+        if drug_name in _STATIC_FALLBACK:
+            fb = _STATIC_FALLBACK[drug_name]
+            return json.dumps({
+                "success": True, "drug": drug_name, "_source": "static_fallback",
+                "_network_error": error_type,
+                "contraindications": fb.get("contraindications", "暂无"),
+                "adverse_reactions": fb.get("adverse_reactions", "暂无"),
+                "drug_interactions": fb.get("drug_interactions", "暂无"),
+                "warnings": fb.get("warnings", "暂无"),
+            }, ensure_ascii=False)
         return json.dumps({"success": False, "error": f"查询异常: {str(e)}"}, ensure_ascii=False)
