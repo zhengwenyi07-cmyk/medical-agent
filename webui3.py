@@ -222,12 +222,52 @@ def render_entities_pretty(entities):
 
 
 def warmup_agent():
-    """预热 Agent 的 NER 组件，避免首次请求等待过久。"""
+    """预热 Agent 的全部组件，避免首次请求等待过久。
+
+    预热内容：
+    1. ONNX NER（RoBERTa+AC自动机+TF-IDF）~14s
+    2. BGE 嵌入模型 ~3s
+    3. FAISS 向量索引 ~0.5s
+    4. LLM 降级链（仅构建实例，不调API）
+    总计约 18s，在页面加载时完成，首次问诊只需等 LLM 返回。
+    """
+    import time
+
+    # 1. NER 组件
     try:
+        t0 = time.time()
         from agent_graph import _load_ner_components
         _load_ner_components()
+        print(f"[Warmup] NER 组件就绪 ({time.time()-t0:.1f}s)")
     except Exception as e:
-        st.warning(f"Agent 预热失败: {e}")
+        st.warning(f"NER 预热失败: {e}")
+
+    # 2. BGE 嵌入模型
+    try:
+        t0 = time.time()
+        from vector_memory import _get_model
+        _get_model()
+        print(f"[Warmup] BGE 嵌入模型就绪 ({time.time()-t0:.1f}s)")
+    except Exception as e:
+        st.warning(f"BGE 预热失败: {e}")
+
+    # 3. FAISS 索引
+    try:
+        t0 = time.time()
+        from vector_memory import _get_index
+        _get_index()
+        print(f"[Warmup] FAISS 索引就绪 ({time.time()-t0:.1f}s)")
+    except Exception as e:
+        st.warning(f"FAISS 预热失败: {e}")
+
+    # 4. LLM 降级链（不调 API，只构建实例）
+    try:
+        t0 = time.time()
+        from agent_graph import _get_llm
+        _get_llm(with_tools=True)
+        print(f"[Warmup] LLM 降级链就绪 ({time.time()-t0:.1f}s)")
+    except Exception as e:
+        st.warning(f"LLM 预热失败: {e}")
 
 
 def check_ollama_connection():
